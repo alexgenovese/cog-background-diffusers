@@ -18,3 +18,4 @@ GitPython
 segment_anything
 scipy
 cog
+groundingdino-stk

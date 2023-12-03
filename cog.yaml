@@ -24,6 +24,7 @@ build:
     - "diffusers"
     - "rembg"
     - "GitPython"
+    - "groundingdino-stk"
 
   run:
     - curl -o /usr/local/bin/pget -L "https://github.com/replicate/pget/releases/download/v0.0.1/pget" 
