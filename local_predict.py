@@ -3,14 +3,14 @@ from cog import BasePredictor, BaseModel, Input, Path
 from typing import Optional, List
 
 sys.path.append('./cache/dino')
-sys.path.append('./cache/sam')
+sys.path.append('./cache/sam/segment_anything')
 
 # ----SAM
 from segment_anything import SamPredictor, sam_model_registry
 # ----Stable Diffusion
 from diffusers import ControlNetModel, StableDiffusionXLControlNetInpaintPipeline, AutoencoderKL, DPMSolverMultistepScheduler
 # ----GroundingDINO
-from groundingdino.util.inference import load_model, predict, annotate
+from groundingdino.util.inference import load_model, predict as predict_dino, annotate
 from groundingdino.util import box_ops
 import groundingdino.datasets.transforms as T
 # ----Extra Libraries
@@ -25,6 +25,17 @@ from download_weights import download_grounding_dino_weights, download_diffusion
 
 
 class Predictor(BasePredictor):
+
+    def get_device_type(self):
+        if torch.backends.mps.is_available():
+            return "mps"
+        
+        if torch.cuda.is_available():
+            return "cuda"
+        
+        print("------ CPU Device type -------")
+        return "cpu"
+
 
     def show_mask(self, mask, image, random_color=True):
         if random_color:
@@ -50,16 +61,9 @@ class Predictor(BasePredictor):
 
 
     def setup(self) -> None:
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "mps")
-
+        self.device = self.get_device_type()
         download_diffusion_weights()
         download_grounding_dino_weights()
-
-        if os.path.isfile(f"{DINO_CACHE}/groundingdino/config/GroundingDINO_SwinT_OGC.py"):
-            print('file exists ')
-
-        if os.path.isfile(f"{DINO_CACHE}/groundingdino/weights/groundingdino_swint_ogc.pth"):
-            print('file exists ')
 
         self.model_dino = load_model(
             f"{DINO_CACHE}/groundingdino/config/GroundingDINO_SwinT_OGC.py",
@@ -68,40 +72,18 @@ class Predictor(BasePredictor):
         )
 
         self.rmsession = new_session("u2net")
+        
 
 
     def predict(
         self,
-        image: Path = Input(description="Input image to query", default=None),
-        prompt: str = Input(
-            default="RAW photo, 8k uhd, dslr, soft lighting, high quality, film grain, Fujifilm XT3, on the table with flowers",
-        ),
-        negative_prompt: str = Input(
-            default="(deformed iris, deformed pupils, semi-realistic, cgi, 3d, render, sketch, cartoon, drawing, anime, mutated hands and fingers:1.4), (deformed, distorted, disfigured:1.3), poorly drawn, bad anatomy, wrong anatomy, extra limb, missing limb, floating limbs, disconnected limbs, mutation, mutated, ugly, disgusting, amputation",
-        ),
-        caption: str = Input(
-            description="Which object should be captured",
-            default="parfum",
-            choices=['bag', 'shoes', 'parfum']
-        ),
-        box_threshold: float = Input(
-            description="Confidence level for object detection",
-            ge=0,
-            le=1,
-            default=0.3,
-        ),
-        text_threshold: float = Input(
-            description="Confidence level for object detection",
-            ge=0,
-            le=1,
-            default=0.25,
-        ),
-        controlnet_conditioning_scale: float = Input(
-            description="Confidence level for object detection",
-            ge=0,
-            le=1,
-            default=0.25,
-        )
+        image: str = "./cache/_training_data/parfum_4.webp",
+        prompt: str = "RAW photo, 8k uhd, dslr, soft lighting, high quality, film grain, Fujifilm XT3, on the table with flowers",
+        negative_prompt: str = "(deformed iris, deformed pupils, semi-realistic, cgi, 3d, render, sketch, cartoon, drawing, anime, mutated hands and fingers:1.4), (deformed, distorted, disfigured:1.3), poorly drawn, bad anatomy, wrong anatomy, extra limb, missing limb, floating limbs, disconnected limbs, mutation, mutated, ugly, disgusting, amputation",
+        caption: str = "parfum",
+        box_threshold: float = 0.3,
+        text_threshold: float = 0.25,
+        controlnet_conditioning_scale: float = 0.25,
     ) :
         # Image manipulation
         init_image = load_image( image )
@@ -121,7 +103,8 @@ class Predictor(BasePredictor):
         
         # ------SAM Parameters
         model_type = "vit_h"
-        predictor = SamPredictor(sam_model_registry[model_type](checkpoint="./weights/sam_vit_h_4b8939.pth").to(device=self.device))
+        sam_weights = os.path.join(DINO_CACHE, 'groundingdino', 'weights', 'sam_vit_h_4b8939.pth')
+        predictor = SamPredictor(sam_model_registry[model_type](checkpoint=sam_weights).to(device=self.device))
         
         # ------Stable Diffusion
         controlnet = ControlNetModel.from_pretrained( "diffusers/controlnet-canny-sdxl-1.0", torch_dtype=torch.float16 )
@@ -132,16 +115,17 @@ class Predictor(BasePredictor):
             vae=vae,
             torch_dtype=torch.float16,
             cache_dir=SDXL_CACHE
-        )
-        pipe.enable_model_cpu_offload()
+        ).to(self.device)
+        # pipe.enable_model_cpu_offload()
         
 
-        boxes, logits, phrases = predict(
+        boxes, logits, phrases = predict_dino(
             model=self.model_dino,
             image=img,
             caption=caption,
             box_threshold=box_threshold,
-            text_threshold=text_threshold
+            text_threshold=text_threshold,
+            device=self.device
         )
         img_annnotated = annotate(image_source=src, boxes=boxes, logits=logits, phrases=phrases)[...,::-1]
         
@@ -165,8 +149,8 @@ class Predictor(BasePredictor):
         mask = Image.fromarray(masks[0][0].cpu().numpy())
 
         inverted_mask = ImageOps.invert(mask)
-        
-        image_canny = self.make_canny_condition(img)
+
+        image_canny = self.make_canny_condition(init_image)
 
         rem_data = remove(init_image, session=self.rmsession )
 
@@ -191,4 +175,13 @@ class Predictor(BasePredictor):
 
         image.paste(rem_data, (0,0), mask = rem_data)
 
-        return Path( image )
+        image.save('./output.png')
+
+        return image
+
+
+
+if __name__ == "__main__":
+    pred = Predictor()
+    pred.setup()
+    pred.predict()
