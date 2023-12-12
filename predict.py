@@ -3,14 +3,14 @@ from cog import BasePredictor, BaseModel, Input, Path
 from typing import Optional, List
 
 sys.path.append('./cache/dino')
-sys.path.append('./cache/sam')
+sys.path.append('./cache/sam/segment_anything')
 
 # ----SAM
 from segment_anything import SamPredictor, sam_model_registry
 # ----Stable Diffusion
 from diffusers import ControlNetModel, StableDiffusionXLControlNetInpaintPipeline, AutoencoderKL, DPMSolverMultistepScheduler
 # ----GroundingDINO
-from groundingdino.util.inference import load_model, predict, annotate
+from groundingdino.util.inference import load_model, predict as predict_dino, annotate
 from groundingdino.util import box_ops
 import groundingdino.datasets.transforms as T
 # ----Extra Libraries
@@ -25,6 +25,16 @@ from download_weights import download_grounding_dino_weights, download_diffusion
 
 
 class Predictor(BasePredictor):
+
+    def get_device_type(self):
+        if torch.backends.mps.is_available():
+            return "mps"
+        
+        if torch.cuda.is_available():
+            return "cuda"
+        
+        print("------ CPU Device type -------")
+        return "cpu"
 
     def show_mask(self, mask, image, random_color=True):
         if random_color:
@@ -50,16 +60,10 @@ class Predictor(BasePredictor):
 
 
     def setup(self) -> None:
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "mps")
+        self.device = self.get_device_type()
 
         download_diffusion_weights()
         download_grounding_dino_weights()
-
-        if os.path.isfile(f"{DINO_CACHE}/groundingdino/config/GroundingDINO_SwinT_OGC.py"):
-            print('file exists ')
-
-        if os.path.isfile(f"{DINO_CACHE}/groundingdino/weights/groundingdino_swint_ogc.pth"):
-            print('file exists ')
 
         self.model_dino = load_model(
             f"{DINO_CACHE}/groundingdino/config/GroundingDINO_SwinT_OGC.py",
@@ -116,12 +120,11 @@ class Predictor(BasePredictor):
         )
         src = np.asarray(init_image)
         img, _ = transform(init_image, None)
-
-        # -----Set Image and CUDA
         
         # ------SAM Parameters
         model_type = "vit_h"
-        predictor = SamPredictor(sam_model_registry[model_type](checkpoint="./weights/sam_vit_h_4b8939.pth").to(device=self.device))
+        sam_weights = os.path.join(DINO_CACHE, 'groundingdino', 'weights', 'sam_vit_h_4b8939.pth')
+        predictor = SamPredictor(sam_model_registry[model_type](checkpoint=sam_weights).to(device=self.device))
         
         # ------Stable Diffusion
         controlnet = ControlNetModel.from_pretrained( "diffusers/controlnet-canny-sdxl-1.0", torch_dtype=torch.float16 )
@@ -132,18 +135,18 @@ class Predictor(BasePredictor):
             vae=vae,
             torch_dtype=torch.float16,
             cache_dir=SDXL_CACHE
-        )
-        pipe.enable_model_cpu_offload()
+        ).to(self.device)
+        # pipe.enable_model_cpu_offload()
         
 
-        boxes, logits, phrases = predict(
+        boxes, logits, phrases = predict_dino(
             model=self.model_dino,
             image=img,
             caption=caption,
             box_threshold=box_threshold,
-            text_threshold=text_threshold
+            text_threshold=text_threshold,
+            device=self.device
         )
-        img_annnotated = annotate(image_source=src, boxes=boxes, logits=logits, phrases=phrases)[...,::-1]
         
         predictor.set_image(src)
         H, W, _ = src.shape
@@ -157,19 +160,10 @@ class Predictor(BasePredictor):
             multimask_output = False,
         )
 
-        img_annotated_mask = Image.fromarray(self.show_mask(masks[0][0].cpu(), img_annnotated))
-        original_img = Image.fromarray(src).resize((512, 512))
-        img_annotated = Image.fromarray(img_annnotated)
-        only_mask = Image.fromarray(masks[0][0].cpu().numpy()).resize((512, 512))
-
         mask = Image.fromarray(masks[0][0].cpu().numpy())
-
         inverted_mask = ImageOps.invert(mask)
-        
-        image_canny = self.make_canny_condition(img)
-
+        image_canny = self.make_canny_condition(init_image)
         rem_data = remove(init_image, session=self.rmsession )
-
 
         # Generate
         controlnet_conditioning_scale = 0.6  # recommended for good generalization
@@ -191,4 +185,6 @@ class Predictor(BasePredictor):
 
         image.paste(rem_data, (0,0), mask = rem_data)
 
-        return Path( image )
+        image.save('./output.png')
+
+        return Path( './output.png' )
