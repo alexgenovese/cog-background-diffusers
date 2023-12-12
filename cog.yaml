@@ -23,6 +23,7 @@ build:
     - "safetensors"
     - "diffusers"
     - "rembg"
+    - "segment_anything"
 
   run:
     - curl -o /usr/local/bin/pget -L "https://github.com/replicate/pget/releases/download/v0.0.6/pget" 
@@ -36,3 +37,5 @@ build:
       && mkdir weights && wget -q https://dl.fbaipublicfiles.com/segment_anything/sam_vit_h_4b8939.pth && wget -q https://github.com/IDEA-Research/GroundingDINO/releases/download/v0.1.0-alpha2/groundingdino_swinb_cogcoor.pth'
 
 predict: "predict.py:Predictor"
+
+image: "r8.im/alexgenovese/bg-remover"

@@ -6,6 +6,7 @@ cache/
 venv/
 .DS_Store
 .cog/
+.png
 
 # C extensions
 *.so

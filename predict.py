@@ -3,7 +3,6 @@ from cog import BasePredictor, BaseModel, Input, Path
 from typing import Optional, List
 
 sys.path.append('./cache/dino')
-sys.path.append('./cache/sam/segment_anything')
 
 # ----SAM
 from segment_anything import SamPredictor, sam_model_registry
@@ -49,15 +48,13 @@ class Predictor(BasePredictor):
 
         return np.array(Image.alpha_composite(annotated_frame_pil, mask_image_pil))
     
-
-    def make_canny_condition(self, image):
+    def make_canny_condition(self, image, low_threshold, max_threshold):
         image = np.array(image)
-        image = cv2.Canny(image, 1, 200)
+        image = cv2.Canny(image, low_threshold, max_threshold)
         image = image[:, :, None]
         image = np.concatenate([image, image, image], axis=2)
         image = Image.fromarray(image)
         return image
-
 
     def setup(self) -> None:
         self.device = self.get_device_type()
@@ -72,7 +69,6 @@ class Predictor(BasePredictor):
         )
 
         self.rmsession = new_session("u2net")
-
 
     def predict(
         self,
@@ -106,7 +102,7 @@ class Predictor(BasePredictor):
             le=1,
             default=0.25,
         )
-    ) :
+    ) -> Path :
         # Image manipulation
         init_image = load_image( image )
         init_image.convert("RGB")
@@ -162,11 +158,11 @@ class Predictor(BasePredictor):
 
         mask = Image.fromarray(masks[0][0].cpu().numpy())
         inverted_mask = ImageOps.invert(mask)
-        image_canny = self.make_canny_condition(init_image)
+        image_canny = self.make_canny_condition(init_image, 1, 200) # case reimagine the background
         rem_data = remove(init_image, session=self.rmsession )
 
         # Generate
-        controlnet_conditioning_scale = 0.6  # recommended for good generalization
+        controlnet_conditioning_scale = 0.6  # recreate completely background
 
         generator = torch.Generator(device="cpu").manual_seed(1)
 
