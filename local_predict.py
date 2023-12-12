@@ -98,8 +98,6 @@ class Predictor(BasePredictor):
         )
         src = np.asarray(init_image)
         img, _ = transform(init_image, None)
-
-        # -----Set Image and CUDA
         
         # ------SAM Parameters
         model_type = "vit_h"
@@ -141,19 +139,10 @@ class Predictor(BasePredictor):
             multimask_output = False,
         )
 
-        img_annotated_mask = Image.fromarray(self.show_mask(masks[0][0].cpu(), img_annnotated))
-        original_img = Image.fromarray(src).resize((512, 512))
-        img_annotated = Image.fromarray(img_annnotated)
-        only_mask = Image.fromarray(masks[0][0].cpu().numpy()).resize((512, 512))
-
         mask = Image.fromarray(masks[0][0].cpu().numpy())
-
         inverted_mask = ImageOps.invert(mask)
-
         image_canny = self.make_canny_condition(init_image)
-
         rem_data = remove(init_image, session=self.rmsession )
-
 
         # Generate
         controlnet_conditioning_scale = 0.6  # recommended for good generalization

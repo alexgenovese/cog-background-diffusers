@@ -9,7 +9,7 @@ SEGMENT_CACHE = "./cache/sam"
 WEIGHTS_URL_DIR_MAP = {
     #"GROUNDING_DINO_WEIGHTS_URL": "https://weights.replicate.delivery/default/grounding-dino/grounding-dino.tar",
     #"HF-CACHE": "https://weights.replicate.delivery/default/grounding-dino/bert-base-uncased.tar",
-    "DINO-SWINT" : "https://github.com/IDEA-Research/GroundingDINO/releases/download/v0.1.0-alpha2/groundingdino_swinb_cogcoor.pth",
+    "DINO-SWINT" : "https://github.com/IDEA-Research/GroundingDINO/releases/download/v0.1.0-alpha/groundingdino_swint_ogc.pth",
     "SAM-MODEL" : "https://dl.fbaipublicfiles.com/segment_anything/sam_vit_h_4b8939.pth"
 }
 
@@ -41,7 +41,7 @@ def download_grounding_dino_weights():
             dest=dino_weights
         )
     
-    if not os.path.isfile( os.path.join(dino_weights, 'groundingdino_swinb_cogcoor.pth' ) ):
+    if not os.path.isfile( os.path.join(dino_weights, 'groundingdino_swint_ogc.pth' ) ):
         download_weights(
             url=WEIGHTS_URL_DIR_MAP["DINO-SWINT"],
             dest=dino_weights
