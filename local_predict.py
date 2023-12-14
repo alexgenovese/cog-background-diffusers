@@ -74,16 +74,20 @@ class Predictor(BasePredictor):
         self.rmsession = new_session("u2net")
         
 
-
+    # a photo of bag on a table of elegant room hotel, RAW photo, 8k uhd, dslr, soft lighting, high quality, film grain, Fujifilm XT3
     def predict(
         self,
-        image: str = "./cache/_training_data/parfum_4.webp",
-        prompt: str = "RAW photo, 8k uhd, dslr, soft lighting, high quality, film grain, Fujifilm XT3, on the table with flowers",
+        image: str = "./cache/_training_data/parfum/5.png",
+        prompt: str = "parfum is on the seaside, sunny weather background",
+        # prompt:str = "a photo of bag on the table of elegant room hotel, RAW photo, 8k uhd, dslr, soft lighting, high quality, film grain, Fujifilm XT3",
         negative_prompt: str = "(deformed iris, deformed pupils, semi-realistic, cgi, 3d, render, sketch, cartoon, drawing, anime, mutated hands and fingers:1.4), (deformed, distorted, disfigured:1.3), poorly drawn, bad anatomy, wrong anatomy, extra limb, missing limb, floating limbs, disconnected limbs, mutation, mutated, ugly, disgusting, amputation",
         caption: str = "parfum",
         box_threshold: float = 0.3,
         text_threshold: float = 0.25,
-        controlnet_conditioning_scale: float = 0.25,
+        controlnet_conditioning_scale: float = 0.2, # recreate completely background
+        low_threshold: int = 400,
+        max_threshold: int = 800,
+        seed: int = 123456
     ) :
         # Image manipulation
         init_image = load_image( image )
@@ -108,7 +112,7 @@ class Predictor(BasePredictor):
         controlnet = ControlNetModel.from_pretrained( "diffusers/controlnet-canny-sdxl-1.0", torch_dtype=torch.float16 )
         vae = AutoencoderKL.from_pretrained("madebyollin/sdxl-vae-fp16-fix", torch_dtype=torch.float16)
         pipe = StableDiffusionXLControlNetInpaintPipeline.from_pretrained(
-            "stabilityai/stable-diffusion-xl-base-1.0",
+            "diffusers/stable-diffusion-xl-1.0-inpainting-0.1",
             controlnet=controlnet,
             vae=vae,
             torch_dtype=torch.float16,
@@ -125,7 +129,7 @@ class Predictor(BasePredictor):
             text_threshold=text_threshold,
             device=self.device
         )
-        img_annnotated = annotate(image_source=src, boxes=boxes, logits=logits, phrases=phrases)[...,::-1]
+        # img_annnotated = annotate(image_source=src, boxes=boxes, logits=logits, phrases=phrases)[...,::-1]
         
         predictor.set_image(src)
         H, W, _ = src.shape
@@ -141,13 +145,13 @@ class Predictor(BasePredictor):
 
         mask = Image.fromarray(masks[0][0].cpu().numpy())
         inverted_mask = ImageOps.invert(mask)
-        image_canny = self.make_canny_condition(init_image, 1, 200) # case reimagine the background
+        image_canny = self.make_canny_condition(init_image, low_threshold, max_threshold) # case reimagine the background
         rem_data = remove(init_image, session=self.rmsession )
 
-        # Generate
-        controlnet_conditioning_scale = 0.6  # recreate completely background
-
-        generator = torch.Generator(device="cpu").manual_seed(1)
+        if seed is None: 
+            generator = torch.Generator(device="cpu").manual_seed(1)
+        else: 
+            generator = torch.Generator(device="cpu").manual_seed(seed)
 
         image = pipe(
             prompt,
@@ -155,14 +159,14 @@ class Predictor(BasePredictor):
             image = init_image,
             mask_image = inverted_mask,
             control_image = image_canny,
-            guidance_scale = 7.0,
-            strength = 0.75,
+            # guidance_scale = 7.0,
+            # strength = 0.75,
             controlnet_conditioning_scale = controlnet_conditioning_scale,
             num_inference_steps = 25,
             generator=generator
             ).images[0]
 
-        image.paste(rem_data, (0,0), mask = rem_data)
+        # image.paste(rem_data, (0,0), mask = rem_data)
 
         image.save('./output.png')
 

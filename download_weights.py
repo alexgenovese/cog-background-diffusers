@@ -53,7 +53,7 @@ def download_diffusion_weights():
         controlnet = ControlNetModel.from_pretrained( "diffusers/controlnet-canny-sdxl-1.0", torch_dtype=torch.float16 )
         vae = AutoencoderKL.from_pretrained("madebyollin/sdxl-vae-fp16-fix", torch_dtype=torch.float16)
         pipe = StableDiffusionXLControlNetInpaintPipeline.from_pretrained(
-            "stabilityai/stable-diffusion-xl-base-1.0",
+            "diffusers/stable-diffusion-xl-1.0-inpainting-0.1",
             controlnet=controlnet,
             vae=vae,
             torch_dtype=torch.float16,
