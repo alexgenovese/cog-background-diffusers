@@ -1,26 +1,42 @@
-import sys
-from cog import BasePredictor, BaseModel, Input, Path
-from typing import Optional, List
+# Prediction interface for Cog
+import os, sys, math, torch, uuid
 
-sys.path.append('./cache/dino')
+# Grunding DINO
+sys.path.append( "./Grounded-Segment-Anything/GroundingDINO" )
+from groundingdino.util.inference import load_image
 
-# ----SAM
-from segment_anything import SamPredictor, sam_model_registry
-# ----Stable Diffusion
-from diffusers import ControlNetModel, StableDiffusionXLControlNetInpaintPipeline, AutoencoderKL, DPMSolverMultistepScheduler
-# ----GroundingDINO
-from groundingdino.util.inference import load_model, predict as predict_dino, annotate
-from groundingdino.util import box_ops
-import groundingdino.datasets.transforms as T
-# ----Extra Libraries
-import os, cv2, torch
-import matplotlib.pyplot as plt
+from cog import BasePredictor, Input, Path
+
+from PIL import Image
+from diffusers import (AutoPipelineForInpainting, AutoencoderKL,
+    DDIMScheduler,
+    DPMSolverMultistepScheduler,
+    EulerAncestralDiscreteScheduler, 
+    EulerDiscreteScheduler,
+    HeunDiscreteScheduler, 
+    PNDMScheduler
+)
 import numpy as np
-from PIL import Image, ImageOps
-from diffusers.utils import make_image_grid, load_image
-from rembg import new_session, remove
 
-from download_weights import download_grounding_dino_weights, download_diffusion_weights, DINO_CACHE, SDXL_CACHE
+from lib.utils import remove_bg, generate_image, download_image
+from lib.DINO import DINO, CACHE_DINO
+from lib.SAM import SAM
+
+
+MODEL_NAME = "diffusers/stable-diffusion-xl-1.0-inpainting-0.1"
+SDXL_CACHE = "./cache/sdxl"
+DINO_CACHE = "./cache/dino"
+SAM_CACHE = "./cache/sam"
+OUTPUT_FILENAME = uuid.uuid4().hex
+
+SCHEDULERS = {
+    "DDIM": DDIMScheduler,
+    "DPMSolverMultistep": DPMSolverMultistepScheduler,
+    "HeunDiscrete": HeunDiscreteScheduler,
+    "K_EULER_ANCESTRAL": EulerAncestralDiscreteScheduler,
+    "K_EULER": EulerDiscreteScheduler,
+    "PNDM": PNDMScheduler,
+}
 
 
 class Predictor(BasePredictor):
@@ -35,152 +51,243 @@ class Predictor(BasePredictor):
         print("------ CPU Device type -------")
         return "cpu"
 
-    def show_mask(self, mask, image, random_color=True):
-        if random_color:
-            color = np.concatenate([np.random.random(3), np.array([0.8])], axis=0)
-        else:
-            color = np.array([30/255, 144/255, 255/255, 0.6])
-        h, w = mask.shape[-2:]
-        mask_image = mask.reshape(h, w, 1) * color.reshape(1, 1, -1)
-
-        annotated_frame_pil = Image.fromarray(image).convert("RGBA")
-        mask_image_pil = Image.fromarray((mask_image.cpu().numpy() * 255).astype(np.uint8)).convert("RGBA")
-
-        return np.array(Image.alpha_composite(annotated_frame_pil, mask_image_pil))
-    
-    def make_canny_condition(self, image, low_threshold, max_threshold):
-        image = np.array(image)
-        image = cv2.Canny(image, low_threshold, max_threshold)
-        image = image[:, :, None]
-        image = np.concatenate([image, image, image], axis=2)
-        image = Image.fromarray(image)
-        return image
 
     def setup(self) -> None:
         self.device = self.get_device_type()
 
-        download_diffusion_weights()
-        download_grounding_dino_weights()
+        # Download weights
+        self.dino = DINO(self.device)
+        self.sam = SAM(self.device)
 
-        self.model_dino = load_model(
-            f"{DINO_CACHE}/groundingdino/config/GroundingDINO_SwinT_OGC.py",
-            f"{DINO_CACHE}/groundingdino/weights/groundingdino_swint_ogc.pth",
-            device=self.device,
-        )
+        vae = AutoencoderKL.from_pretrained("madebyollin/sdxl-vae-fp16-fix", torch_dtype=torch.float16)
+        if not os.path.exists(SDXL_CACHE):
+            os.makedirs(SDXL_CACHE)
+            self.pipe = AutoPipelineForInpainting.from_pretrained(
+                MODEL_NAME,
+                vae=vae,
+                torch_dtype=torch.float16
+            )
+            self.pipe.save_pretrained(SDXL_CACHE)
+        else:
+            self.pipe = AutoPipelineForInpainting.from_pretrained(
+                MODEL_NAME,
+                vae=vae,
+                torch_dtype=torch.float16,
+                cache_dir=SDXL_CACHE
+            )
+        
+        # to GPU
+        self.pipe.to(self.device)
 
-        self.rmsession = new_session("u2net")
 
+    # Output PIL
+    def scale_down_image(self, image: Image, max_size) -> Image:
+        width, height = image.size
+        scaling_factor = min(max_size/width, max_size/height)
+        new_width = int(width * scaling_factor)
+        new_height = int(height * scaling_factor)
+        resized_image = image.resize((new_width, new_height))
+        cropped_image = self.crop_center(resized_image)
+        return cropped_image
+
+    def crop_center(self, pil_img):
+        img_width, img_height = pil_img.size
+        crop_width = self.base(img_width)
+        crop_height = self.base(img_height)
+        return pil_img.crop(
+            (
+                (img_width - crop_width) // 2,
+                (img_height - crop_height) // 2,
+                (img_width + crop_width) // 2,
+                (img_height + crop_height) // 2)
+            )
+
+    def base(self, x):
+        return int(8 * math.floor(int(x)/8))
+    
     def predict(
         self,
-        image: Path = Input(description="Input image to query", default=None),
+        image: Path = Input(description="Input image"),
+        mask: Path = Input(description="Mask image"),
         prompt: str = Input(
-            default="RAW photo, 8k uhd, dslr, soft lighting, high quality, film grain, Fujifilm XT3, on the table with flowers",
+            description="Input prompt",
+            default="An astronaut riding a rainbow unicorn",
         ),
         negative_prompt: str = Input(
-            default="(deformed iris, deformed pupils, semi-realistic, cgi, 3d, render, sketch, cartoon, drawing, anime, mutated hands and fingers:1.4), (deformed, distorted, disfigured:1.3), poorly drawn, bad anatomy, wrong anatomy, extra limb, missing limb, floating limbs, disconnected limbs, mutation, mutated, ugly, disgusting, amputation",
+            description="Input Negative Prompt",
+            default="monochrome, lowres, bad anatomy, worst quality, low quality",
         ),
         caption: str = Input(
-            description="Which object should be captured",
-            default="parfum",
-            choices=['bag', 'shoes', 'parfum']
+            description="Text for object identification with Grounding DINO",
+            default=None,
         ),
-        box_threshold: float = Input(
-            description="Confidence level for object detection",
-            ge=0,
-            le=1,
-            default=0.3,
+        scheduler: str = Input(
+            description="scheduler",
+            choices=SCHEDULERS.keys(),
+            default="K_EULER",
         ),
-        text_threshold: float = Input(
-            description="Confidence level for object detection",
-            ge=0,
-            le=1,
-            default=0.25,
+        guidance_scale: float = Input(
+            description="Guidance scale", ge=0, le=10, default=8.0
         ),
-        controlnet_conditioning_scale: float = Input(
-            description="Confidence level for object detection",
-            ge=0,
-            le=1,
-            default=0.25,
-        )
-    ) -> Path :
-        # Image manipulation
-        init_image = load_image( image )
-        init_image.convert("RGB")
+        steps: int = Input(
+            description="Number of denoising steps", ge=1, le=80, default=20),
+        strength: float = Input(
+            description="1.0 corresponds to full destruction of information in image", ge=0.01, le=1.0, default=0.7),
+        seed: int = Input(
+            description="Random seed. Leave blank to randomize the seed", default=None
+        ),
+    ) -> Path:
+        """Run a single prediction on the model"""
+        if seed is None:
+            seed = int.from_bytes(os.urandom(2), "big")
+        print(f"Using seed: {seed}")
 
-        transform = T.Compose(
-            [
-                T.RandomResize([800], max_size=1333),
-                T.ToTensor(),
-                T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
-            ]
-        )
-        src = np.asarray(init_image)
-        img, _ = transform(init_image, None)
+        if image is None:
+            raise Exception("No Image found in the request")
+
+        if prompt == "" or negative_prompt == "":
+            raise Exception("No Prompt or Negative prompt found in the request")
+
+        if caption is None or caption == "":
+            raise Exception("No caption found in the request")
         
-        # ------SAM Parameters
-        model_type = "vit_h"
-        sam_weights = os.path.join(DINO_CACHE, 'groundingdino', 'weights', 'sam_vit_h_4b8939.pth')
-        predictor = SamPredictor(sam_model_registry[model_type](checkpoint=sam_weights).to(device=self.device))
+        self.pipe.scheduler = SCHEDULERS[scheduler].from_config(self.pipe.scheduler.config)
+
+        # save local temp file
+        tmp_pil_img = download_image(image)
+        input_image = self.scale_down_image(tmp_pil_img, 1024)
+
+        # Create PIL Image and Tensor
+        image_source, image_tensor = load_image(input_image)
         
-        # ------Stable Diffusion
-        controlnet = ControlNetModel.from_pretrained( "diffusers/controlnet-canny-sdxl-1.0", torch_dtype=torch.float16 )
-        vae = AutoencoderKL.from_pretrained("madebyollin/sdxl-vae-fp16-fix", torch_dtype=torch.float16)
-        pipe = StableDiffusionXLControlNetInpaintPipeline.from_pretrained(
-            "stabilityai/stable-diffusion-xl-base-1.0",
-            controlnet=controlnet,
-            vae=vae,
-            torch_dtype=torch.float16,
-            cache_dir=SDXL_CACHE
-        ).to(self.device)
-        # pipe.enable_model_cpu_offload()
+        annotated_frame, detected_boxes = self.dino.detect(image_tensor, image_source, text_prompt=caption)
+
+        if detected_boxes.numel() == 0:
+            print(f"Detected Boxes {detected_boxes.numel()}")
+            return "No object found in image. Try to change the caption text."
         
+        # Use SAM to create Mask
+        segmented_frame_masks = self.sam.segment(image_source, boxes=detected_boxes)
 
-        boxes, logits, phrases = predict_dino(
-            model=self.model_dino,
-            image=img,
-            caption=caption,
-            box_threshold=box_threshold,
-            text_threshold=text_threshold,
-            device=self.device
-        )
+        # create mask images 
+        mask = segmented_frame_masks[0][0].cpu().numpy()
+        inverted_mask = ((1 - mask) * 255).astype(np.uint8)
+
+        image_mask_pil = Image.fromarray(mask)
+        inverted_image_mask_pil = Image.fromarray(inverted_mask)
+
+        # Inference
+        result = generate_image(image=input_image, 
+                mask=inverted_image_mask_pil, 
+                prompt=prompt, 
+                negative_prompt=negative_prompt, 
+                pipe=self.pipe, 
+                seed=seed,
+                guidance_scale=guidance_scale,
+                steps=steps,
+                strength=strength,
+                device = self.device
+            )
+
+        # Paste the object for a better resolution 
+        rem_data = remove_bg(input_image)
+        result.paste(rem_data, (0,0), mask = rem_data)
+
+        # Save
+        result.save('./'+OUTPUT_FILENAME)
+
+        return './'+OUTPUT_FILENAME
+    
+
+
+    # Only for local test
+    def predict_mps(
+        self,
+        image: str = "./_tests/dog.png",
+        prompt: str = "A dog on seaside",
+        negative_prompt: str = "monochrome, lowres, bad anatomy, worst quality, low quality",
+        caption: str = "dog",
+        scheduler: str = "DPMSolverMultistep",
+        guidance_scale: float = 8.0,
+        steps: int = 25,
+        strength: float = 0.99,
+        seed: int = None,
+        debug: bool = True
+    ) -> str:
+        """Run a single prediction on the model"""
+        if seed is None:
+            seed = int.from_bytes(os.urandom(2), "big")
+        print(f"Using seed: {seed}")
         
-        predictor.set_image(src)
-        H, W, _ = src.shape
-        boxes_xyxy = box_ops.box_cxcywh_to_xyxy(boxes) * torch.Tensor([W, H, W, H])
-        new_boxes = predictor.transform.apply_boxes_torch(boxes_xyxy, src.shape[:2]).to(self.device)
+        self.pipe.scheduler = SCHEDULERS[scheduler].from_config(self.pipe.scheduler.config)
 
-        masks, _, _ = predictor.predict_torch(
-            point_coords = None,
-            point_labels = None,
-            boxes = new_boxes,
-            multimask_output = False,
-        )
+        # save local temp file
+        tmp_pil_img = download_image(image)
+        input_image = self.scale_down_image(tmp_pil_img, 1024)
+        
+        if debug: 
+            input_image.save('0_tmp_image.png')
 
-        mask = Image.fromarray(masks[0][0].cpu().numpy())
-        inverted_mask = ImageOps.invert(mask)
-        image_canny = self.make_canny_condition(init_image, 1, 200) # case reimagine the background
-        rem_data = remove(init_image, session=self.rmsession )
+        # Create PIL Image and Tensor
+        image_source, image_tensor = load_image(input_image)
+        
+        annotated_frame, detected_boxes = self.dino.detect(image_tensor, image_source, text_prompt=caption)
 
-        # Generate
-        controlnet_conditioning_scale = 0.6  # recreate completely background
+        if detected_boxes.numel() == 0:
+            print(f"Detected Boxes {detected_boxes.numel()}")
+            return "No object found in image. Try to change the caption text."
+        
+        if debug:
+            # To show the annotation on image
+            image_with_box = Image.fromarray(annotated_frame)
+            image_with_box.save('1_image_with_box.png')
+        
+        # Use SAM to create Mask
+        segmented_frame_masks = self.sam.segment(image_source, boxes=detected_boxes)
 
-        generator = torch.Generator(device="cpu").manual_seed(1)
+        # Show the annotation and the mask on the image
+        if debug:
+            annotated_frame_with_mask = self.sam.draw_mask(segmented_frame_masks[0][0], annotated_frame)
+            annotated_frame_with_mask = Image.fromarray(annotated_frame_with_mask) # To show the annotation on image
+            annotated_frame_with_mask.save('2_annotated_frame_with_mask.png')
 
-        image = pipe(
-            prompt,
-            negative_prompt = negative_prompt,
-            image = init_image,
-            mask_image = inverted_mask,
-            control_image = image_canny,
-            guidance_scale = 7.0,
-            strength = 0.75,
-            controlnet_conditioning_scale = controlnet_conditioning_scale,
-            num_inference_steps = 25,
-            generator=generator
-            ).images[0]
+        # create mask images 
+        mask = segmented_frame_masks[0][0].cpu().numpy()
+        inverted_mask = ((1 - mask) * 255).astype(np.uint8)
 
-        image.paste(rem_data, (0,0), mask = rem_data)
+        image_mask_pil = Image.fromarray(mask)
+        inverted_image_mask_pil = Image.fromarray(inverted_mask)
+        
+        if debug:
+            image_mask_pil.save('3_image_mask_pil.png')
+            inverted_image_mask_pil.save('4_inverted_image_mask_pil.png')
 
-        image.save('./output.png')
+        # Inference
+        result = generate_image(image=input_image, 
+                mask=inverted_image_mask_pil, 
+                prompt=prompt, 
+                negative_prompt=negative_prompt, 
+                pipe=self.pipe, 
+                seed=seed,
+                guidance_scale=guidance_scale,
+                steps=steps,
+                strength=strength,
+                device = self.device
+            )
 
-        return Path( './output.png' )
+        # Paste the object for a better resolution 
+        rem_data = remove_bg(input_image)
+        result.paste(rem_data, (0,0), mask = rem_data)
+
+        # Save
+        result.save('./'+OUTPUT_FILENAME)
+
+        return './'+OUTPUT_FILENAME
+
+
+
+
+if __name__ == "__main__":    
+    pred = Predictor()
+    pred.setup()
+    pred.predict_mps()

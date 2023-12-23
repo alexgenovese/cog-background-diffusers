@@ -1,40 +1,22 @@
+# Configuration for Cog ⚙️
+# Reference: https://github.com/replicate/cog/blob/main/docs/yaml.md
+
 build:
   gpu: true
-  python_version: "3.9"
-  cuda: "12.1"
-  system_packages:
-    - "zip"
-    - "libgl1-mesa-glx"
-    - "ninja-build"
-  python_packages:
-    - "torch==2.1.0"
-    - "torchvision==0.16.0"
-    - "transformers==4.34.1"
-    - "addict==2.4.0"
-    - "yapf==0.40.2"
-    - "timm==0.9.8"
-    - "numpy==1.26.1"
-    - "opencv-python==4.8.1.78"
-    - "supervision==0.6.0"
-    - "pycocotools==2.0.7"
-    - "packaging==21.3"
-    - "setuptools==65.3.0"
-    - "accelerate"
-    - "safetensors"
-    - "diffusers"
-    - "rembg"
-    - "segment_anything"
+  cuda: "11.8"
 
-  run:
-    - curl -o /usr/local/bin/pget -L "https://github.com/replicate/pget/releases/download/v0.0.6/pget" 
-    - chmod +x /usr/local/bin/pget
-    - 'export PATH=/usr/local/cuda/bin:$PATH 
-      && export CUDA_HOME=/usr/local/cuda 
-      && export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH 
-      && export TORCH_CUDA_ARCH_LIST="6.0;6.1;7.0;7.5;8.0;8.6+PTX;8.9;9.0" 
-      && git clone https://github.com/IDEA-Research/GroundingDINO.git 
-      && cd GroundingDINO && pip -q install -e .
-      && mkdir weights && wget -q https://dl.fbaipublicfiles.com/segment_anything/sam_vit_h_4b8939.pth && wget -q https://github.com/IDEA-Research/GroundingDINO/releases/download/v0.1.0-alpha2/groundingdino_swinb_cogcoor.pth'
+  python_version: "3.11"
+
+  system_packages:
+    - "libgl1-mesa-glx"
+    - "libglib2.0-0"
+  
+  python_requirements: requirements.txt 
+
+  run: 
+    - git clone https://github.com/IDEA-Research/Grounded-Segment-Anything && cd ./Grounded-Segment-Anything && pip install -q -r requirements.txt
+    - cd ./Grounded-Segment-Anything/GroundingDINO && python3 -m pip install -q .
+    - cd ./Grounded-Segment-Anything/segment_anything && python3 -m pip install -q .
 
 predict: "predict.py:Predictor"
 
