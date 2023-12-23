@@ -23,7 +23,6 @@ build:
     - "safetensors"
     - "diffusers"
     - "rembg"
-    - "segment_anything"
 
   run:
     - curl -o /usr/local/bin/pget -L "https://github.com/replicate/pget/releases/download/v0.0.6/pget" 

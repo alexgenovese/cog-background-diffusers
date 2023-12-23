@@ -16,4 +16,3 @@ diffusers
 rembg
 scipy
 cog
-segment_anything
