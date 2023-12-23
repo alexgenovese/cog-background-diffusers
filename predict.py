@@ -52,7 +52,7 @@ class Predictor(BasePredictor):
         return "cpu"
 
 
-    def setup(self) -> None:
+    def setup(self):
         self.device = self.get_device_type()
 
         # Download weights
@@ -107,8 +107,7 @@ class Predictor(BasePredictor):
     
     def predict(
         self,
-        image: Path = Input(description="Input image"),
-        mask: Path = Input(description="Mask image"),
+        image: Path = Input(default=None, description="Input image"),
         prompt: str = Input(
             description="Input prompt",
             default="An astronaut riding a rainbow unicorn",
