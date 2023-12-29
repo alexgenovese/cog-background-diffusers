@@ -13,9 +13,6 @@ build:
   system_packages:
     - "libgl1-mesa-glx"
     - "libglib2.0-0"
-    - "ffmpeg"
-    - "libsm6"
-    - "zip"
   
   python_requirements: requirements.txt 
 
