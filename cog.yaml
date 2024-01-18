@@ -37,4 +37,4 @@ build:
 
 predict: "predict.py:Predictor"
 
-image: "r8.im/alexgenovese/bg-remover"
+image: "r8.im/alexgenovese/bg-enhancer-sam-groundingdino"
