@@ -25,10 +25,9 @@ def download_weights(url, dest):
 def download_grounding_dino_weights():
     if not os.path.exists(DINO_CACHE):
         # download_weights( url=WEIGHTS_URL_DIR_MAP["GROUNDING_DINO_WEIGHTS_URL"], dest=grounding_dino_weights_dir )
-        download_weights("https://github.com/IDEA-Research/GroundingDINO", DINO_CACHE)
+        os.system(f"git clone https://github.com/IDEA-Research/GroundingDINO {DINO_CACHE}")
         # Install DINO as library
-        subprocess.check_output(["cd", DINO_CACHE])
-        subprocess.check_output(["pip", "install", "-q", "-e", "."])
+        os.system(f"cd {DINO_CACHE} && pip install -e .")
     
     dino_weights = os.path.join(DINO_CACHE, 'groundingdino', 'weights')
 
@@ -65,10 +64,10 @@ def download_diffusion_weights():
 def download_segment_anything():
     if not os.path.exists(SEGMENT_CACHE):
         os.makedirs(SEGMENT_CACHE)
-        os.chdir(SEGMENT_CACHE)
-        os.system('git clone https://github.com/facebookresearch/segment-anything .')
+        os.system(f'git clone https://github.com/facebookresearch/segment-anything {SEGMENT_CACHE}')
         # Install DINO as library
-        subprocess.check_output(["pip", "install", "-q", "-e", "."])
+        #subprocess.check_output(["pip", "install", "-q", "-e", "."])
+        os.system(f"cd {SEGMENT_CACHE} && pip install -q -e .")
 
 
 if __name__ == "__main__":

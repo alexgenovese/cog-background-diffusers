@@ -8,7 +8,7 @@ venv/
 .cog/
 .png
 _tests
-Grounded-Segment-Anything
+Grounded-Segment-Anything/
 
 # C extensions
 *.so

@@ -23,6 +23,7 @@ build:
     - "safetensors"
     - "diffusers"
     - "rembg"
+    - "segment-anything"
 
   run:
     - curl -o /usr/local/bin/pget -L "https://github.com/replicate/pget/releases/download/v0.0.6/pget" 
@@ -30,10 +31,8 @@ build:
     - 'export PATH=/usr/local/cuda/bin:$PATH 
       && export CUDA_HOME=/usr/local/cuda 
       && export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH 
-      && export TORCH_CUDA_ARCH_LIST="6.0;6.1;7.0;7.5;8.0;8.6+PTX;8.9;9.0" 
-      && git clone https://github.com/IDEA-Research/GroundingDINO.git 
-      && cd GroundingDINO && pip -q install -e .
-      && mkdir weights && wget -q https://dl.fbaipublicfiles.com/segment_anything/sam_vit_h_4b8939.pth && wget -q https://github.com/IDEA-Research/GroundingDINO/releases/download/v0.1.0-alpha2/groundingdino_swinb_cogcoor.pth'
+      && export TORCH_CUDA_ARCH_LIST="6.0;6.1;7.0;7.5;8.0;8.6+PTX;8.9;9.0"'
+    - git clone https://github.com/IDEA-Research/GroundingDINO.git /src/cache/dino/
 
 predict: "predict.py:Predictor"
 

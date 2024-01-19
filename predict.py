@@ -2,7 +2,8 @@ import sys
 from cog import BasePredictor, BaseModel, Input, Path
 from typing import Optional, List
 
-sys.path.append('./cache/dino')
+sys.path.append('/src/Grounded-Segment-Anything/segment_anything')
+sys.path.append('/src/Grounded-Segment-Anything/groundingDINO/groundingdino')
 
 # ----SAM
 from segment_anything import SamPredictor, sam_model_registry
@@ -20,7 +21,7 @@ from PIL import Image, ImageOps
 from diffusers.utils import make_image_grid, load_image
 from rembg import new_session, remove
 
-from download_weights import download_grounding_dino_weights, download_diffusion_weights, DINO_CACHE, SDXL_CACHE
+from download_weights import download_grounding_dino_weights, download_diffusion_weights, download_segment_anything, DINO_CACHE, SDXL_CACHE
 
 
 class Predictor(BasePredictor):
@@ -61,6 +62,7 @@ class Predictor(BasePredictor):
 
         download_diffusion_weights()
         download_grounding_dino_weights()
+        download_segment_anything()
 
         self.model_dino = load_model(
             f"{DINO_CACHE}/groundingdino/config/GroundingDINO_SwinT_OGC.py",
