@@ -2,8 +2,8 @@ import sys
 from cog import BasePredictor, BaseModel, Input, Path
 from typing import Optional, List
 
+sys.path.append('./cache/sam')
 sys.path.append('./cache/dino')
-sys.path.append('./cache/sam/segment_anything')
 
 # ----SAM
 from segment_anything import SamPredictor, sam_model_registry
@@ -77,7 +77,7 @@ class Predictor(BasePredictor):
     # a photo of bag on a table of elegant room hotel, RAW photo, 8k uhd, dslr, soft lighting, high quality, film grain, Fujifilm XT3
     def predict(
         self,
-        image: str = "./cache/_training_data/parfum/5.png",
+        image: str = "./_tests/parfum.webp",
         prompt: str = "parfum is on the seaside, sunny weather background",
         # prompt:str = "a photo of bag on the table of elegant room hotel, RAW photo, 8k uhd, dslr, soft lighting, high quality, film grain, Fujifilm XT3",
         negative_prompt: str = "(deformed iris, deformed pupils, semi-realistic, cgi, 3d, render, sketch, cartoon, drawing, anime, mutated hands and fingers:1.4), (deformed, distorted, disfigured:1.3), poorly drawn, bad anatomy, wrong anatomy, extra limb, missing limb, floating limbs, disconnected limbs, mutation, mutated, ugly, disgusting, amputation",
@@ -119,7 +119,6 @@ class Predictor(BasePredictor):
             cache_dir=SDXL_CACHE
         ).to(self.device)
         # pipe.enable_model_cpu_offload()
-        
 
         boxes, logits, phrases = predict_dino(
             model=self.model_dino,

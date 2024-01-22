@@ -2,8 +2,8 @@ import sys
 from cog import BasePredictor, BaseModel, Input, Path
 from typing import Optional, List
 
-sys.path.append('/src/Grounded-Segment-Anything/segment_anything')
-sys.path.append('/src/Grounded-Segment-Anything/groundingDINO/groundingdino')
+sys.path.append('/src/cache/sam')
+sys.path.append('/src/cache/dino')
 
 # ----SAM
 from segment_anything import SamPredictor, sam_model_registry
@@ -59,7 +59,8 @@ class Predictor(BasePredictor):
 
     def setup(self) -> None:
         self.device = self.get_device_type()
-
+        
+        # cache library and weights
         download_diffusion_weights()
         download_grounding_dino_weights()
         download_segment_anything()
