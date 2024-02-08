@@ -23,7 +23,8 @@ from lib.DINO import DINO, CACHE_DINO
 from lib.SAM import SAM
 
 
-MODEL_NAME = "diffusers/stable-diffusion-xl-1.0-inpainting-0.1"
+# MODEL_NAME = "diffusers/stable-diffusion-xl-1.0-inpainting-0.1"
+MODEL_NAME = "andregn/Realistic_Vision_V6.0-inpainting"
 SDXL_CACHE = "./cache/sdxl"
 DINO_CACHE = "./cache/dino"
 SAM_CACHE = "./cache/sam"

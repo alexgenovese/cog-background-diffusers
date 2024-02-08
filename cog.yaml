@@ -17,9 +17,9 @@ build:
   python_requirements: requirements.txt 
 
   run: 
-    - git clone https://github.com/IDEA-Research/Grounded-Segment-Anything && cd ./Grounded-Segment-Anything && pip install -q -r requirements.txt
-    - cd ./Grounded-Segment-Anything/GroundingDINO && python3 -m pip install -q .
-    - cd ./Grounded-Segment-Anything/segment_anything && python3 -m pip install -q .
+    # - git clone https://github.com/IDEA-Research/Grounded-Segment-Anything && cd ./Grounded-Segment-Anything && pip install -q -r requirements.txt
+    # - cd ./Grounded-Segment-Anything/GroundingDINO && python3 -m pip install -q .
+    # - cd ./Grounded-Segment-Anything/segment_anything && python3 -m pip install -q .
 
 predict: "predict.py:Predictor"
 
