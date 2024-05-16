@@ -3,7 +3,7 @@ GroundingDino, Segment Anything, Inpainting SDXL and Controlnet Canny
 
 This is an implementation of a blend of technologies in a Cog model, it works on Mac (M1, M2, M3) and CUDA machines.
 
-[![Test it on Replicate](https://replicate.com/alexgenovese/bg-remover)/badge)]([https://replicate.com/stability-ai/sdxl](https://replicate.com/alexgenovese/bg-remover))
+[![Replicate demo and cloud API](https://replicate.com/alexgenovese/bg-remover/badge)](https://replicate.com/alexgenovese/bg-remover)
 
 # Test it on Replicate
 Go to replicate to test this endpoint [clicking here](https://replicate.com/alexgenovese/bg-remover)
