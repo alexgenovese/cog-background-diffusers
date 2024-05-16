@@ -7,6 +7,8 @@ venv/
 .DS_Store
 .cog/
 .png
+_tests
+Grounded-Segment-Anything/
 
 # C extensions
 *.so
